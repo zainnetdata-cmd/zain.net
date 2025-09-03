@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>ZAIN.NET Crypto Futures — LONG/SHORT (Client-only, Improved)</title>
+<!-- Lightweight Charts -->
+<script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
+<style>
+:root{--bg:#071024;--card:#0f1724;--muted:#9fb0c8;--text:#e6f2ff;--accent:#22c55e;--danger:#ff6b6b}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,Segoe UI,Roboto,Helvetica,Arial}
+.wrap{max-width:1200px;margin:14px auto;padding:12px}
+header{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+h1{font-size:18px;margin:0}
+.controls{display:grid;grid-template-columns:repeat(12,1fr);gap:8px;width:100%}
+.c{grid-column:auto/span 3}
+@media(max-width:900px){.c{grid-column:auto/span 6}}
+@media(max-width:600px){.c{grid-column:auto/span 12}}
+input,select,button{width:100%;padding:8px;border-radius:8px;border:1px solid #21324a;background:#071822;color:var(--text)}
+button{cursor:pointer}
+button.primary{background:linear-gradient(180deg,#0b6b4f,#0a5a42);border:none;color:#e9fff1}
+.grid{display:grid;grid-template-columns:1fr 420px;gap:12px}
+@media(max-width:980px){.grid{grid-template-columns:1fr}}
+.card{background:var(--card);border-radius:12px;padding:12px;border:1px solid #122033}
+#chart{height:360px}
+.list{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:10px}
+@media(max-width:980px){.list{grid-template-columns:1fr}}
+.coin{padding:10px;border-radius:10px;border:1px solid #17283a;background:linear-gradient(180deg,#071422,#081826);display:flex;flex-direction:column;gap:8px}
+.pill{display:inline-block;padding:4px 8px;border-radius:999px;font-size:12px}
+.pill.long{background:#063;color:#bfffe0}
+.pill.short{background:#600;color:#ffdede}
+.pill.neutral{background:#30343a;color:#cbd5e1}
+.muted{color:var(--muted);font-size:13px}
+.small{font-size:12px;color:#9fb0c8}
+.kpi{display:flex;gap:8px;flex-wrap:wrap}
+.kpi .box{background:#071826;padding:8px;border-radius:8px;border:1px solid #123045}
+.history{max-height:240px;overflow:auto;font-size:13px;white-space:pre-wrap}
+.footer{margin-top:12px;color:var(--muted);font-size:13px;text-align:center}
+button.small{padding:6px 8px;font-size:13px}
+.warn{color:#ffcf66}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>ZAIN.NET Crypto Futures —WA (085231176597)</h1>
+      <div class="small muted">Futures USDT-M • EMA/RSI/MACD/BB • Funding rate heuristic • Chart • History • CORS-hardened</div>
+    </header>
+
+    <section class="card controls" style="margin-bottom:12px">
+      <div class="c"><label>Timeframe<select id="tf"><option>1m</option><option>3m</option><option>5m</option><option>15m</option><option selected>1h</option><option>4h</option><option>1d</option></select></label></div>
+      <div class="c"><label>Jumlah candle<input id="limit" type="number" min="50" max="1000" value="300"></label></div>
+      <div class="c"><label>Interval (detik)<input id="interval" type="number" min="5" value="60"></label></div>
+      <div class="c"><label>Top N USDT<input id="topN" type="number" min="5" max="100" value="30"></label></div>
+      <div class="c"><label>Modal (USD)<input id="capital" type="number" value="1000"></label></div>
+      <div class="c"><label>Risk (%)<input id="risk" type="number" step="0.1" value="1.0"></label></div>
+
+      <div class="c"><label>Filter<select id="filter"><option value="all">Semua</option><option value="long">LONG</option><option value="short">SHORT</option><option value="neutral">NEUTRAL</option></select></label></div>
+      <div class="c"><label>Sort<select id="sort"><option value="volume">Volume</option><option value="change">%Change</option><option value="score">Score</option><option value="symbol">Symbol</option></select></label></div>
+      <div class="c"><label>Search<input id="search" placeholder="BTC, ETH..." /></label></div>
+      <div class="c"><label>Concurrency<input id="concurrency" type="number" min="1" max="12" value="6"></label></div>
+
+      <div class="c"><button class="primary" id="startBtn">Start Scan</button></div>
+      <div class="c"><button id="stopBtn">Stop</button></div>
+      <div class="c"><button id="exportCSV">Export CSV</button></div>
+      <div class="c"><button id="exportJSON">Export JSON</button></div>
+    </section>
+
+    <div class="grid">
+      <div>
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <div class="kpi" id="kpis"></div>
+            <div><span class="small muted">Status: </span><span id="status" class="small">Idle</span></div>
+          </div>
+          <div id="warn" class="small warn" style="margin-top:6px"></div>
+          <div id="list" class="list" style="margin-top:12px"></div>
+        </div>
+
+        <div class="card" style="margin-top:12px">
+          <h3>History (localStorage)</h3>
+          <div style="display:flex;gap:8px;margin-bottom:8px">
+            <button id="clearHistory" class="small">Clear History</button>
+            <button id="downloadHistory" class="small">Download JSON</button>
+          </div>
+          <div id="history" class="history muted"></div>
+        </div>
+      </div>
+
+      <div>
+        <div class="card">
+          <h3>Chart</h3>
+          <div id="chart"></div>
+          <div id="chartInfo" class="small muted" style="margin-top:8px"></div>
+        </div>
+
+        <div class="card" style="margin-top:12px">
+          <h3>Logs</h3>
+          <div id="log" class="small muted" style="max-height:160px;overflow:auto"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">DYOR. (Do Your Own Research) ini hanya analisa otomatis yang bisa saja salah. Analisa manual lagi untuk ke Valitan data div>
+  </div>
+
+<script>
+// -------------------- Utilities & CORS tries --------------------
+const DOM = s=>document.querySelector(s);
+const fmt = (n,d=2)=>Number(n).toLocaleString(undefined,{maximumFractionDigits:d});
+const PROXY = 'https://api.allorigins.win/raw?url='; // last-resort proxy (rate-limited)
+
+function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
+
+function withTimeout(promise, ms, label='timeout'){
+  return Promise.race([
+    promise,
+    new Promise((_,rej)=> setTimeout(()=> rej(new Error(label)), ms))
+  ]);
+}
+
+// tryFetch: attempts several CORS-friendly mirrors for both API and FAPI
+async function tryFetch(url, {retries=2, backoff=400}={}){
+  const tries = [];
+  if(url.includes('/fapi/v1')) {
+    tries.push(url.replace('https://fapi.binance.com/fapi/v1', 'https://data.binance.vision/fapi/v1'));
+    tries.push(url.replace('https://fapi.binance.com/fapi/v1', 'https://data-api.binance.vision/fapi/v1'));
+    tries.push(url.replace('https://fapi.binance.com/fapi/v1', 'https://fapi.binance.us/fapi/v1'));
+    tries.push(url);
+  } else if(url.includes('/api/v3')) {
+    tries.push(url.replace('https://api.binance.com/api/v3', 'https://data.binance.vision/api/v3'));
+    tries.push(url.replace('https://api.binance.com/api/v3', 'https://data-api.binance.vision/api/v3'));
+    tries.push(url.replace('https://api.binance.com/api/v3', 'https://api.binance.us/api/v3'));
+    tries.push(url);
+  } else {
+    tries.push(url);
+  }
+  tries.push(PROXY + encodeURIComponent(url));
+
+  let lastErr = null;
+  for(const u of tries){
+    for(let attempt=0; attempt<=retries; attempt++){
+      try{
+        const r = await withTimeout(fetch(u, {cache:'no-store'}), 7000, 'fetch timeout');
+        if(!r.ok) throw new Error(`HTTP ${r.status} @ ${new URL(u).hostname}`);
+        const json = await r.json();
+        log(`fetched ${new URL(u).hostname}${new URL(u).pathname}`);
+        return json;
+      }catch(e){
+        lastErr = e;
+        if(attempt < retries) await sleep(backoff * Math.pow(1.6, attempt));
+      }
+    }
+  }
+  throw lastErr;
+}
+
+// -------------------- Indicators & patterns --------------------
+function SMA(data,p){ const out=[]; let s=0; for(let i=0;i<data.length;i++){ s+=data[i]; if(i>=p) s-=data[i-p]; out.push(i>=p-1? s/p : null);} return out;}
+function EMA(data,p){ const out=[]; const k=2/(p+1); let prev=null; for(let i=0;i<data.length;i++){ prev = prev===null? data[i] : (data[i]-prev)*k + prev; out.push(prev);} return out;}
+function RSI(closes,p=14){ const out=Array(closes.length).fill(null); let g=0,l=0; for(let i=1;i<closes.length;i++){ const d=closes[i]-closes[i-1]; const gg=Math.max(d,0), ll=Math.max(-d,0); if(i<=p){ g+=gg; l+=ll; if(i===p){ const rs=g/Math.max(l,1e-9); out[i]=100-100/(1+rs);} } else { g=(g*(p-1)+gg)/p; l=(l*(p-1)+ll)/p; const rs=g/Math.max(l,1e-9); out[i]=100-100/(1+rs);} } return out;}
+function MACD(closes,f=12,s=26,si=9){ const ef=EMA(closes,f), es=EMA(closes,s); const macd=closes.map((_,i)=> (ef[i]||0)-(es[i]||0)); const sig=EMA(macd,si); const hist=macd.map((v,i)=> v - (sig[i]||0)); return {macd,sig,hist};}
+function Bollinger(closes,p=20,m=2){ const mid=SMA(closes,p); const up=[], low=[]; for(let i=0;i<closes.length;i++){ if(i<p-1){ up.push(null); low.push(null); continue;} let sum=0; for(let j=i-p+1;j<=i;j++) sum += Math.pow(closes[j]-mid[i],2); const sd=Math.sqrt(sum/p); up.push(mid[i]+m*sd); low.push(mid[i]-m*sd);} return {mid, upper:up, lower:low};}
+
+function cObj(k){ return {o:+k[1], h:+k[2], l:+k[3], c:+k[4]};}
+function isBullEngulf(prev,curr){ return prev.c < prev.o && curr.c > curr.o && curr.o <= prev.c && curr.c >= prev.o && Math.abs(curr.c-curr.o) > Math.abs(prev.c-prev.o)*1.05;}
+function isBearEngulf(prev,curr){ return prev.c > prev.o && curr.c < curr.o && curr.o >= prev.c && curr.c <= prev.o && Math.abs(curr.c-curr.o) > Math.abs(prev.c-prev.o)*1.05;}
+function isHammer(k){ const body=Math.abs(k.c-k.o); const lower = Math.min(k.o,k.c)-k.l; const upper = k.h - Math.max(k.o,k.c); return lower>body*2 && upper<body*0.5;}
+function isShootingStar(k){ const body=Math.abs(k.c-k.o); const upper = k.h - Math.max(k.o,k.c); const lower = Math.min(k.o,k.c)-k.l; return upper>body*2 && lower<body*0.5; }
+
+// -------------------- Futures classify (LONG / SHORT / NEUTRAL) --------------------
+function classifyFutures({closes, ema20, ema50, rsi, macd, bb, candles, fundingRate}) {
+  const i = closes.length - 1;
+  let score = 0; const reasons = [];
+  if(ema20[i] && ema50[i]) { if(ema20[i] > ema50[i]) { score += 1; reasons.push('EMA20>EMA50'); } else { score -= 1; reasons.push('EMA20<EMA50'); } }
+  if(rsi[i]!=null){ if(rsi[i] < 30){ score += 1; reasons.push('RSI oversold'); } if(rsi[i] > 70){ score -= 1; reasons.push('RSI overbought'); } }
+  if(macd.macd[i]!=null && macd.sig[i]!=null){ const cross = (macd.macd[i]-macd.sig[i]) - (macd.macd[i-1]-macd.sig[i-1]||0); if(cross>0){ score+=1; reasons.push('MACD bullish cross'); } else if(cross<0){ score-=1; reasons.push('MACD bearish cross'); } }
+  if(bb.upper[i]!=null){ const last=closes[i]; if(last < bb.lower[i]){ score+=0.6; reasons.push('Close < BB lower'); } if(last > bb.upper[i]){ score-=0.6; reasons.push('Close > BB upper'); } }
+  // patterns
+  const prev = cObj(candles[candles.length-2]); const lastC = cObj(candles[candles.length-1]);
+  if(isBullEngulf(prev,lastC)){ score+=1.2; reasons.push('Bull Engulfing'); }
+  if(isBearEngulf(prev,lastC)){ score-=1.2; reasons.push('Bear Engulfing'); }
+  if(isHammer(lastC)){ score+=0.8; reasons.push('Hammer'); }
+  if(isShootingStar(lastC)){ score-=0.8; reasons.push('Shooting Star'); }
+  // funding rate heuristic (fundingRate expected as number string e.g. "0.0001")
+  if(fundingRate != null){
+    const fr = Number(fundingRate);
+    if(!isNaN(fr)){
+      if(fr > 0.0005){ score -= 0.6; reasons.push(`Funding +${(fr*100).toFixed(3)}% (crowded long)`); }
+      else if(fr < -0.0005){ score += 0.4; reasons.push(`Funding ${(fr*100).toFixed(3)}% (bias long)`); }
+    }
+  }
+  const tag = score >= 1.2 ? 'LONG' : (score <= -1.2 ? 'SHORT' : 'NEUTRAL');
+  const entry = closes[i];
+  const recentLows = candles.slice(-6).map(k=>+k[3]);
+  const recentHighs = candles.slice(-6).map(k=>+k[2]);
+  const sl = tag==='LONG' ? Math.min(...recentLows) : Math.max(...recentHighs);
+  const rr = Math.abs(entry - sl) || entry*0.002;
+  const tp1 = tag==='LONG' ? entry + rr*1.2 : entry - rr*1.2;
+  const tp2 = tag==='LONG' ? entry + rr*2.0 : entry - rr*2.0;
+  return {score, reasons, tag, entry, sl, tp1, tp2, fundingRate};
+}
+
+// -------------------- concurrency mapLimit --------------------
+async function mapLimit(items, limit, fn){
+  const out = new Array(items.length);
+  let idx=0;
+  const running = new Set();
+  async function run(i){
+    const p = fn(items[i], i).then(res => out[i]=res).catch(e => out[i]={error: e.message||String(e)}).finally(()=> running.delete(p));
+    running.add(p);
+    if(running.size >= limit) await Promise.race(running);
+  }
+  while(idx < items.length) run(idx++);
+  await Promise.all(running);
+  return out;
+}
+
+// -------------------- Chart --------------------
+let chart, candleSeries, ema20Series, ema50Series, bbUpper, bbLower;
+function ensureChart(){
+  if(chart) return;
+  chart = LightweightCharts.createChart(DOM('#chart'), {
+    layout:{background:{type:'solid',color:'#071024'}, textColor:'#cde6ff'},
+    grid:{vertLines:{color:'#072033'}, horzLines:{color:'#072033'}},
+    rightPriceScale:{borderColor:'#0b2738'}, timeScale:{borderColor:'#0b2738'}
+  });
+  candleSeries = chart.addCandlestickSeries();
+  ema20Series = chart.addLineSeries({lineWidth:1.4});
+  ema50Series = chart.addLineSeries({lineWidth:1.4});
+  bbUpper = chart.addLineSeries({lineWidth:1, lineStyle:1});
+  bbLower = chart.addLineSeries({lineWidth:1, lineStyle:1});
+}
+function drawChart(symbol, klines){
+  ensureChart();
+  const data = klines.map(k=>({time: k[0]/1000, open:+k[1], high:+k[2], low:+k[3], close:+k[4]}));
+  candleSeries.setData(data);
+  const closes = data.map(d=>d.close);
+  const e20 = EMA(closes,20), e50 = EMA(closes,50);
+  const bb = Bollinger(closes,20,2);
+  ema20Series.setData(data.map((c,i)=>({time:c.time, value:e20[i]})));
+  ema50Series.setData(data.map((c,i)=>({time:c.time, value:e50[i]})));
+  bbUpper.setData(data.map((c,i)=>({time:c.time, value:bb.upper[i]})));
+  bbLower.setData(data.map((c,i)=>({time:c.time, value:bb.lower[i]})));
+  chart.timeScale().fitContent();
+  DOM('#chartInfo').textContent = `${symbol} • ${new Date(klines.at(-1)[0]).toLocaleString()}`;
+}
+
+// -------------------- Notifications & sound --------------------
+function requestNotification(){ if('Notification' in window && Notification.permission==='default') Notification.requestPermission(); }
+function notify(text){ try{ if(Notification.permission==='granted') new Notification('Futures Scanner', {body:text}); }catch(e){} }
+function beep(){ try{ const ac=new (window.AudioContext||window.webkitAudioContext)(); const o=ac.createOscillator(); const g=ac.createGain(); o.type='sine'; o.frequency.value=880; o.connect(g); g.connect(ac.destination); g.gain.setValueAtTime(0.0001,ac.currentTime); g.gain.exponentialRampToValueAtTime(0.2,ac.currentTime+0.02); o.start(); setTimeout(()=>{ g.gain.exponentialRampToValueAtTime(0.0001,ac.currentTime+0.12); o.stop(ac.currentTime+0.15); },200);}catch(e){} }
+
+// -------------------- History --------------------
+function saveHistory(item){ const k='futures_scanner_history_v2'; const arr=JSON.parse(localStorage.getItem(k)||'[]'); arr.unshift(item); localStorage.setItem(k, JSON.stringify(arr.slice(0,500))); renderHistory(); }
+function renderHistory(){ const arr=JSON.parse(localStorage.getItem('futures_scanner_history_v2')||'[]'); DOM('#history').textContent = arr.slice(0,200).map(x=>`${new Date(x.time).toLocaleString()} • ${x.symbol} (${x.tf}) ? ${x.tag} [${x.score.toFixed(2)}]\nEntry ${fmt(x.entry)} • SL ${fmt(x.sl)} • TP1 ${fmt(x.tp1)} • TP2 ${fmt(x.tp2)}\nFund: ${x.fundingRate ?? '-'}\nAlasan: ${x.reasons.join('; ')}\n`).join('\n'); }
+
+// -------------------- Helper: get futures-permitted symbols --------------------
+let FUTURES_SET = null;
+async function ensureFuturesSymbols(){
+  if(FUTURES_SET) return FUTURES_SET;
+  try{
+    const ex = await tryFetch('https://fapi.binance.com/fapi/v1/exchangeInfo');
+    const fut = (ex.symbols||[]).filter(s=> s.contractType==='PERPETUAL' && s.quoteAsset==='USDT').map(s=> s.symbol);
+    FUTURES_SET = new Set(fut);
+    DOM('#warn').textContent = '';
+  }catch(e){
+    // if blocked, continue but warn user
+    DOM('#warn').textContent = 'Tidak bisa memuat daftar futures dari fapi (CORS). Scanner tetap jalan pakai 24hr USDT top list.';
+    FUTURES_SET = null;
+  }
+  return FUTURES_SET;
+}
+
+// -------------------- Core scan --------------------
+let timer=null, scanning=false;
+async function singleScan(){
+  DOM('#status').textContent = 'Fetching tickers...';
+  const topN = +DOM('#topN').value; const tf = DOM('#tf').value; const limit = +DOM('#limit').value; const concurrency = +DOM('#concurrency').value || 6;
+
+  // 1) fetch tickers from API (spot 24h) — then filter to futures if possible
+  let tickers;
+  try{
+    tickers = await tryFetch('https://api.binance.com/api/v3/ticker/24hr');
+  }catch(err){
+    DOM('#status').textContent = 'Failed to fetch tickers: ' + (err.message||err);
+    throw err;
+  }
+
+  const futSet = await ensureFuturesSymbols();
+
+  const top = tickers
+    .filter(t=>/USDT$/.test(t.symbol) && !/UPUSDT|DOWNUSDT|BULL|BEAR|AI3S|AI3L/i.test(t.symbol))
+    .filter(t=> !futSet || futSet.has(t.symbol))
+    .sort((a,b)=> +b.quoteVolume - +a.quoteVolume)
+    .slice(0, topN)
+    .map(t=>({symbol:t.symbol, volume:+t.quoteVolume, change:+t.priceChangePercent}));
+
+  DOM('#status').textContent = `Fetching futures klines for ${top.length} symbols...`;
+
+  const results = await mapLimit(top, concurrency, async (s)=>{
+    try{
+      const base = `https://fapi.binance.com/fapi/v1/klines?symbol=${s.symbol}&interval=${tf}&limit=${limit}`;
+      const klines = await tryFetch(base);
+      const closes = klines.map(k=>+k[4]);
+      const ema20 = EMA(closes,20), ema50 = EMA(closes,50);
+      const rsi = RSI(closes,14);
+      const macd = MACD(closes);
+      const bb = Bollinger(closes,20,2);
+
+      // funding / premiumIndex
+      let funding = null;
+      try{
+        const p = await tryFetch(`https://fapi.binance.com/fapi/v1/premiumIndex?symbol=${s.symbol}`);
+        funding = (p && (p.lastFundingRate ?? p.fundingRate ?? p.lastFundingRate)) ?? null;
+      }catch(e){ funding = null; }
+
+      const sig = classifyFutures({closes, ema20, ema50, rsi, macd, bb, candles: klines, fundingRate: funding});
+      const capital = +DOM('#capital').value; const riskPct = +DOM('#risk').value; const riskVal = capital * (riskPct/100);
+      const perUnit = Math.max(Math.abs(sig.entry - sig.sl), sig.entry*0.002);
+      const qty = Math.max(riskVal / perUnit, 0);
+
+      return {...s, klines, closes, ema20, ema50, rsi, macd, bb, sig, qty, fundingRate: funding};
+    }catch(err){
+      return {...s, error: err.message||String(err)};
+    }
+  });
+
+  // render KPIs & list
+  const ok = results.filter(r=>!r.error), bad = results.filter(r=>r.error);
+  const longs = ok.filter(r=>r.sig.tag==='LONG'), shorts = ok.filter(r=>r.sig.tag==='SHORT'), neutrals = ok.filter(r=>r.sig.tag==='NEUTRAL');
+
+  DOM('#kpis').innerHTML = `<div class="box">Total: <b>${ok.length}/${results.length}</b></div><div class="box">LONG: <b>${longs.length}</b></div><div class="box">SHORT: <b>${shorts.length}</b></div><div class="box">NEUTRAL: <b>${neutrals.length}</b></div><div class="box">Fail: <b>${bad.length}</b></div>`;
+
+  const sortBy = DOM('#sort').value; const term = DOM('#search').value.trim().toUpperCase(); const ftag = DOM('#filter').value;
+  const sorter = {volume:(a,b)=>b.volume-a.volume, change:(a,b)=>b.change-a.change, score:(a,b)=>b.sig.score-a.sig.score, symbol:(a,b)=>a.symbol.localeCompare(b.symbol)}[sortBy] || (()=>0);
+  ok.sort(sorter);
+  const shown = ok.filter(d => (ftag==='all' || d.sig.tag.toLowerCase()===ftag) && (!term || d.symbol.includes(term)));
+
+  const list = DOM('#list'); list.innerHTML = '';
+  for(const d of shown){
+    const el = document.createElement('div'); el.className='coin';
+    const cls = d.sig.tag==='LONG' ? 'long' : (d.sig.tag==='SHORT' ? 'short' : 'neutral');
+    el.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div><strong>${d.symbol}</strong> <span class="pill ${cls}">${d.sig.tag}</span></div>
+        <div class="small muted">Vol24h: $${fmt(d.volume,0)} • ?24h: ${fmt(d.change,2)}%</div>
+      </div>
+      <div class="muted">Score: <b>${d.sig.score.toFixed(2)}</b> • Entry ${fmt(d.sig.entry)} • SL ${fmt(d.sig.sl)} • TP1 ${fmt(d.sig.tp1)} • TP2 ${fmt(d.sig.tp2)}</div>
+      <div class="small">Qty(risk%): ${fmt(d.qty,4)} • Fund: ${d.fundingRate ?? '-'}</div>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button data-sym="${d.symbol}" class="openChart small">Chart</button>
+        <button data-sym="${d.symbol}" class="saveIdea small">Save</button>
+        <button data-sym="${d.symbol}" class="copy small">Copy</button>
+      </div>
+      <div class="small muted" style="margin-top:6px">Alasan: ${d.sig.reasons.slice(0,6).join('; ')}</div>
+    `;
+    list.appendChild(el);
+  }
+
+  // bind actions
+  list.querySelectorAll('.openChart').forEach(b=> b.onclick = ()=> { const sym=b.getAttribute('data-sym'); const item = ok.find(x=>x.symbol===sym); if(item){ drawChart(sym, item.klines); window.scrollTo({top:0,behavior:'smooth'}); } });
+  list.querySelectorAll('.saveIdea').forEach(b=> b.onclick = ()=> { const sym=b.getAttribute('data-sym'); const item = ok.find(x=>x.symbol===sym); if(item){ saveHistory({time:Date.now(), symbol:sym, tf:DOM('#tf').value, tag:item.sig.tag, score:item.sig.score, entry:item.sig.entry, sl:item.sig.sl, tp1:item.sig.tp1, tp2:item.sig.tp2, reasons:item.sig.reasons, fundingRate:item.fundingRate}); DOM('#log').textContent = `Saved ${sym}\n` + DOM('#log').textContent; } });
+  list.querySelectorAll('.copy').forEach(b=> b.onclick = ()=> { const sym=b.getAttribute('data-sym'); const item = ok.find(x=>x.symbol===sym); if(item){ navigator.clipboard?.writeText(`${item.symbol} ${item.sig.tag} ENTRY:${item.sig.entry} SL:${item.sig.sl} TP1:${item.sig.tp1}`); DOM('#log').textContent = `Copied ${sym}\n` + DOM('#log').textContent; } });
+
+  const strong = ok.filter(d=> Math.abs(d.sig.score) >= 2 && (d.sig.tag==='LONG'||d.sig.tag==='SHORT'));
+  if(strong.length){ notify(`Strong: ${strong.slice(0,6).map(s=>s.symbol+' '+s.sig.tag).join(', ')}`); beep(); }
+
+  renderHistory();
+  DOM('#status').textContent = `Scan done • ${new Date().toLocaleTimeString()}`;
+  return results;
+}
+
+// -------------------- Start/Stop & Exports --------------------
+DOM('#startBtn').onclick = async ()=>{
+  if(scanning) return;
+  scanning = true; requestNotification();
+  DOM('#status').textContent = 'Running...';
+  try{ await singleScan(); }catch(e){ DOM('#status').textContent = 'Error: '+(e.message||e); }
+  const interval = Math.max(5, +DOM('#interval').value);
+  timer = setInterval(()=> singleScan().catch(e=> DOM('#log').textContent = `ERR ${e}\n` + DOM('#log').textContent), interval*1000);
+};
+DOM('#stopBtn').onclick = ()=>{ if(timer){ clearInterval(timer); timer=null; } scanning=false; DOM('#status').textContent='Stopped'; };
+DOM('#clearHistory').onclick = ()=>{ localStorage.removeItem('futures_scanner_history_v2'); renderHistory(); DOM('#log').textContent = 'History cleared\n' + DOM('#log').textContent; };
+DOM('#downloadHistory').onclick = ()=>{ const data = localStorage.getItem('futures_scanner_history_v2')||'[]'; const blob = new Blob([data], {type:'application/json'}); const url = URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='futures_history.json'; a.click(); URL.revokeObjectURL(url); };
+DOM('#exportJSON').onclick = ()=>{ const arr = JSON.parse(localStorage.getItem('futures_scanner_history_v2')||'[]'); const blob = new Blob([JSON.stringify(arr,null,2)],{type:'application/json'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='scanner_export.json'; a.click(); URL.revokeObjectURL(url); };
+DOM('#exportCSV').onclick = ()=>{ const arr = JSON.parse(localStorage.getItem('futures_scanner_history_v2')||'[]'); if(!arr.length){ alert('No history'); return; } const keys=['time','symbol','tf','tag','score','entry','sl','tp1','tp2','fundingRate','reasons']; const lines=[keys.join(',')].concat(arr.map(r=> keys.map(k=>{ let v=r[k]; if(k==='time') v=new Date(v).toLocaleString(); if(Array.isArray(v)) v=`"${v.join(';')}"`; return `"${String(v).replace(/"/g,'""')}"`; }).join(','))); const blob=new Blob([lines.join('\n')],{type:'text/csv'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='futures_history.csv'; a.click(); URL.revokeObjectURL(url); };
+
+// -------------------- Init --------------------
+function log(msg){ DOM('#log').textContent = `${new Date().toLocaleTimeString()} • ${msg}\n` + DOM('#log').textContent; }
+requestNotification(); renderHistory(); DOM('#status').textContent = 'Ready';
+</script>
+</body>
+</html>
